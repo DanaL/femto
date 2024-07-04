@@ -44,6 +44,7 @@ void abuf_free(struct abuf *ab)
 
 // Data
 struct editor_config {
+  uint32_t cx, cy;
   int screenrows;
   int screencols;
   struct termios orig_termios;
@@ -96,6 +97,26 @@ char editor_read_key(void)
       die("read");
   }
 
+  if (c == '\x1b') {
+    char seq[3];
+
+    if (read(STDERR_FILENO, &seq[0], 1) != 1)
+      return '\x1b';
+    if (read(STDERR_FILENO, &seq[1], 1) != 1)
+      return '\x1b';
+
+    if (seq[0] == '[') {
+      switch (seq[1]) {
+        case 'A': return 'k';
+        case 'B': return 'j';
+        case 'C': return 'l';
+        case 'D': return 'h';
+      }
+    }
+
+    return '\x1b';
+  }
+  
   return c;
 }
 
@@ -162,7 +183,7 @@ void editor_draw_rows(struct abuf *ab)
       }
       while (padding--)
         abuf_append(ab, " ", 1);
-        
+
       abuf_append(ab, welcome, welcome_len);
     }
     else {
@@ -185,7 +206,10 @@ void editor_refresh_screen(void)
 
   editor_draw_rows(&ab);
 
-  abuf_append(&ab, "\x1b[H", 3);
+  char buf[32];
+  snprintf(buf, sizeof(buf), "\x1b[%d;%dH", ed_config.cy+1, ed_config.cx+1);
+  abuf_append(&ab, buf, strlen(buf));
+
   abuf_append(&ab, "\x1b[?25h", 6);
 
   write(STDERR_FILENO, ab.b, ab.len);
@@ -193,6 +217,25 @@ void editor_refresh_screen(void)
 }
 
 // Input
+
+void editor_move_cursor(char key)
+{
+  switch (key) {
+    case 'h':
+      ed_config.cx--;
+      break;
+    case 'l':
+      ed_config.cx++;
+      break;
+    case 'j':
+      ed_config.cy++;
+      break;
+    case 'k':
+      ed_config.cy--;
+      break;
+  }  
+}
+
 void editor_process_keypress(void)
 {
   char c = editor_read_key();
@@ -203,22 +246,29 @@ void editor_process_keypress(void)
       write(STDOUT_FILENO, "\x1b[H", 3);
       exit(0);
       break;
+    case 'h':
+    case 'j':
+    case 'k':
+    case 'l':
+      editor_move_cursor(c);
+      break;
   }
 }
 
 // Init
-
-void init_editor()
+void editor_init(void)
 {
-  if (get_window_size(&ed_config.screenrows, &ed_config.screencols) == 1) {
+  ed_config.cx = 0;
+  ed_config.cy = 0;
+
+  if (get_window_size(&ed_config.screenrows, &ed_config.screencols) == -1)
     die("get_window_size");
-  }
 }
 
 int main(void)
 {
   enable_rawmode();
-  init_editor();
+  editor_init();
   
   while (1) {
     editor_refresh_screen();
