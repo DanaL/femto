@@ -15,6 +15,18 @@
 
 #define CRTL_KEY(k) ((k) & 0x1f)
 
+enum editor_key {
+  ARROW_LEFT = 1000,
+  ARROW_RIGHT,
+  ARROW_UP,
+  ARROW_DOWN,
+  DEL_KEY,
+  HOME_KEY,
+  END_KEY,
+  PAGE_UP,
+  PAGE_DOWN
+};
+
 // append buffer
 struct abuf {
   char *b;
@@ -88,7 +100,7 @@ void enable_rawmode(void)
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
 
-char editor_read_key(void)
+int editor_read_key(void)
 {
   int nread;
   char c;
@@ -106,11 +118,36 @@ char editor_read_key(void)
       return '\x1b';
 
     if (seq[0] == '[') {
+      if (seq[1] >= '0' && seq[1] <= '9') {
+        if (read(STDERR_FILENO, &seq[2], 1) != 1)
+          return '\x1b';
+        if (seq[2] == '~') {
+          switch (seq[1]) {
+            case '1': return HOME_KEY;
+            case '3': return DEL_KEY;
+            case '4': return END_KEY;
+            case '5': return PAGE_UP;
+            case '6': return PAGE_DOWN;
+            case '7': return HOME_KEY;
+            case '8': return END_KEY;
+          }          
+        }
+      }
+      else {
+        switch (seq[1]) {
+          case 'A': return ARROW_UP;
+          case 'B': return ARROW_DOWN;
+          case 'C': return ARROW_RIGHT;
+          case 'D': return ARROW_LEFT;
+          case 'H': return HOME_KEY;
+          case 'F': return END_KEY;
+        }
+      }
+    }
+    else if (seq[0] == 'O') {
       switch (seq[1]) {
-        case 'A': return 'k';
-        case 'B': return 'j';
-        case 'C': return 'l';
-        case 'D': return 'h';
+        case 'H': return HOME_KEY;
+        case 'F': return END_KEY;
       }
     }
 
@@ -218,19 +255,27 @@ void editor_refresh_screen(void)
 
 // Input
 
-void editor_move_cursor(char key)
+void editor_move_cursor(int key)
 {
   switch (key) {
     case 'h':
-      ed_config.cx--;
+    case ARROW_LEFT:
+      if (ed_config.cx > 0)
+        ed_config.cx--;
       break;
     case 'l':
-      ed_config.cx++;
+    case ARROW_RIGHT:
+      if (ed_config.cx < ed_config.screencols - 1)
+        ed_config.cx++;
       break;
     case 'j':
-      ed_config.cy++;
+    case ARROW_DOWN:
+      if (ed_config.cy < ed_config.screenrows - 1)
+        ed_config.cy++;
       break;
     case 'k':
+    case ARROW_UP:
+      if (ed_config.cy > 0)
       ed_config.cy--;
       break;
   }  
@@ -238,7 +283,7 @@ void editor_move_cursor(char key)
 
 void editor_process_keypress(void)
 {
-  char c = editor_read_key();
+  int c = editor_read_key();
 
   switch (c) {
     case CTRL_KEY('q'):
@@ -246,10 +291,28 @@ void editor_process_keypress(void)
       write(STDOUT_FILENO, "\x1b[H", 3);
       exit(0);
       break;
+    case HOME_KEY:
+      ed_config.cx = 0;
+      break;
+    case END_KEY:
+      ed_config.cx = ed_config.screencols - 1;
+      break;
+    case PAGE_UP:
+    case PAGE_DOWN:
+      {
+        int times = ed_config.screenrows;
+        while (times--)
+          editor_move_cursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
+      }
+      break;
     case 'h':
     case 'j':
     case 'k':
     case 'l':
+    case ARROW_UP:
+    case ARROW_DOWN:
+    case ARROW_LEFT:
+    case ARROW_RIGHT:
       editor_move_cursor(c);
       break;
   }
