@@ -1,4 +1,8 @@
 
+#define _DEFAULT_SOURCE
+#define _BSD_SOURCE
+#define _GNU_SOURCE
+
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
@@ -6,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/types.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -14,6 +19,13 @@
 #define FEMTO_VERSION "0.0.1"
 
 #define CRTL_KEY(k) ((k) & 0x1f)
+
+// data structures
+
+struct erow {
+  int size;
+  char *chars;
+};
 
 enum editor_key {
   ARROW_LEFT = 1000,
@@ -59,6 +71,8 @@ struct editor_config {
   uint32_t cx, cy;
   int screenrows;
   int screencols;
+  int numrows;
+  struct erow *rows;
   struct termios orig_termios;
 };
 
@@ -157,6 +171,42 @@ int editor_read_key(void)
   return c;
 }
 
+// row operations
+
+void editor_append_row(char *s, size_t len)
+{
+  ed_config.rows = realloc(ed_config.rows, sizeof(struct erow) * (ed_config.numrows + 1));
+
+  int at = ed_config.numrows;
+  ed_config.rows[at].size = len;
+  ed_config.rows[at].chars = malloc(len + 1);
+  memcpy(ed_config.rows[at].chars, s, len);
+  ed_config.rows[at].chars[len] = '\0';
+  ed_config.numrows++;
+}
+
+// file i/o
+void editor_open(char *filename)
+{
+  FILE *fp = fopen(filename, "r");
+  if (!fp)
+    die("fopen");
+
+  char *line = NULL;
+  size_t linecap = 0;
+  ssize_t line_len;
+  while ((line_len = getline(&line, &linecap, fp)) != -1) {
+    while (line_len > 0 && (line[line_len - 1] == '\n' ||
+                           line[line_len - 1] == '\r'))
+      line_len--;
+
+    editor_append_row(line, line_len);
+  }
+
+  free(line);
+  fclose(fp);
+}
+
 int get_cursor_position(int *rows, int *cols)
 {
   char buf[32];
@@ -206,25 +256,33 @@ void editor_draw_rows(struct abuf *ab)
 {
   int y;
   for (y = 0; y < ed_config.screenrows; y++) {
-    if (y == ed_config.screenrows / 3) {
-      char welcome[80];
-      int welcome_len = snprintf(welcome, sizeof(welcome), 
-        "Femto editor -- version %s", FEMTO_VERSION);
-      if (welcome_len > ed_config.screencols)
-        welcome_len = ed_config.screencols;
+    if (y >= ed_config.numrows) {
+      if (ed_config.numrows == 0 && y == ed_config.screenrows / 3) {
+        char welcome[80];
+        int welcome_len = snprintf(welcome, sizeof(welcome), 
+          "Femto editor -- version %s", FEMTO_VERSION);
+        if (welcome_len > ed_config.screencols)
+          welcome_len = ed_config.screencols;
 
-      int padding = (ed_config.screencols - welcome_len) / 2;
-      if (padding) {
-        abuf_append(ab, "~", 1);
-        padding--;
+        int padding = (ed_config.screencols - welcome_len) / 2;
+        if (padding) {
+          abuf_append(ab, "~", 1);
+          padding--;
+        }
+        while (padding--)
+          abuf_append(ab, " ", 1);
+
+        abuf_append(ab, welcome, welcome_len);
       }
-      while (padding--)
-        abuf_append(ab, " ", 1);
-
-      abuf_append(ab, welcome, welcome_len);
+      else {
+        abuf_append(ab, "~", 1);
+      }
     }
     else {
-      abuf_append(ab, "~", 1);
+      int len = ed_config.rows[y].size;
+      if (len > ed_config.screencols) 
+        len = ed_config.screencols;
+      abuf_append(ab, ed_config.rows[y].chars, len);
     }
 
     abuf_append(ab, "\x1b[K", 3);
@@ -323,15 +381,21 @@ void editor_init(void)
 {
   ed_config.cx = 0;
   ed_config.cy = 0;
+  ed_config.numrows = 0;
+  ed_config.rows = NULL;
 
   if (get_window_size(&ed_config.screenrows, &ed_config.screencols) == -1)
     die("get_window_size");
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
   enable_rawmode();
   editor_init();
+
+  if (argc >= 2) {
+    editor_open(argv[1]);
+  }
   
   while (1) {
     editor_refresh_screen();
