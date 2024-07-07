@@ -69,6 +69,7 @@ void abuf_free(struct abuf *ab)
 // Data
 struct editor_config {
   uint32_t cx, cy;
+  int row_offset;
   int screenrows;
   int screencols;
   int numrows;
@@ -251,11 +252,21 @@ int get_window_size(int *rows, int *cols)
 }
 
 // Output
+void editor_scroll(void)
+{
+  if (ed_config.cy < ed_config.row_offset) {
+    ed_config.row_offset = ed_config.cy;
+  }
+  if (ed_config.cy >= ed_config.row_offset + ed_config.screenrows) {
+    ed_config.row_offset = ed_config.cy - ed_config.screenrows + 1;
+  }
+}
 
 void editor_draw_rows(struct abuf *ab)
 {
   int y;
   for (y = 0; y < ed_config.screenrows; y++) {
+    int file_row = y + ed_config.row_offset;
     if (y >= ed_config.numrows) {
       if (ed_config.numrows == 0 && y == ed_config.screenrows / 3) {
         char welcome[80];
@@ -279,10 +290,10 @@ void editor_draw_rows(struct abuf *ab)
       }
     }
     else {
-      int len = ed_config.rows[y].size;
+      int len = ed_config.rows[file_row].size;
       if (len > ed_config.screencols) 
         len = ed_config.screencols;
-      abuf_append(ab, ed_config.rows[y].chars, len);
+      abuf_append(ab, ed_config.rows[file_row].chars, len);
     }
 
     abuf_append(ab, "\x1b[K", 3);
@@ -294,6 +305,8 @@ void editor_draw_rows(struct abuf *ab)
 
 void editor_refresh_screen(void)
 {
+  editor_scroll();
+
   struct abuf ab = ABUF_INIT;
 
   abuf_append(&ab, "\x1b[?25l", 6);
@@ -302,7 +315,9 @@ void editor_refresh_screen(void)
   editor_draw_rows(&ab);
 
   char buf[32];
-  snprintf(buf, sizeof(buf), "\x1b[%d;%dH", ed_config.cy+1, ed_config.cx+1);
+  snprintf(buf, sizeof(buf), "\x1b[%d;%dH", 
+    (ed_config.cy - ed_config.row_offset), ed_config.cx+1);
+    
   abuf_append(&ab, buf, strlen(buf));
 
   abuf_append(&ab, "\x1b[?25h", 6);
@@ -328,7 +343,7 @@ void editor_move_cursor(int key)
       break;
     case 'j':
     case ARROW_DOWN:
-      if (ed_config.cy < ed_config.screenrows - 1)
+      if (ed_config.cy < ed_config.numrows)
         ed_config.cy++;
       break;
     case 'k':
@@ -381,6 +396,7 @@ void editor_init(void)
 {
   ed_config.cx = 0;
   ed_config.cy = 0;
+  ed_config.row_offset = 0;
   ed_config.numrows = 0;
   ed_config.rows = NULL;
 
