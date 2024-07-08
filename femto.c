@@ -72,6 +72,7 @@ void abuf_free(struct abuf *ab)
 // Data
 struct editor_config {
   uint32_t cx, cy;
+  int rx;
   int row_offset;
   int col_offset;
   int screenrows;
@@ -177,6 +178,18 @@ int editor_read_key(void)
 }
 
 // row operations
+
+int editor_row_cx_to_rx(struct erow *row, int cx)
+{
+  int rx = 0;
+  for (int j = 0; j < cx; j++) {
+    if (row->chars[j] == '\t')
+      rx += (TAB_STOP - 1) - (rx % TAB_STOP);
+    rx++;
+  }
+
+  return rx;
+}
 
 void editor_update_row(struct erow *row)
 {
@@ -290,6 +303,11 @@ int get_window_size(int *rows, int *cols)
 // Output
 void editor_scroll(void)
 {
+  ed_cfg.rx = 0;
+  if (ed_cfg.cy < ed_cfg.numrows) {
+    ed_cfg.rx = editor_row_cx_to_rx(&ed_cfg.rows[ed_cfg.cy], ed_cfg.cx);
+  }
+
   if (ed_cfg.cy < ed_cfg.row_offset) {
     ed_cfg.row_offset = ed_cfg.cy;
   }
@@ -297,10 +315,10 @@ void editor_scroll(void)
     ed_cfg.row_offset = ed_cfg.cy - ed_cfg.screenrows + 1;
   }
   if (ed_cfg.cx < ed_cfg.col_offset) {
-    ed_cfg.col_offset = ed_cfg.cx;
+    ed_cfg.col_offset = ed_cfg.rx;
   }
-  if (ed_cfg.cx >= ed_cfg.col_offset + ed_cfg.screencols) {
-    ed_cfg.col_offset = ed_cfg.cx - ed_cfg.screencols + 1;
+  if (ed_cfg.rx >= ed_cfg.col_offset + ed_cfg.screencols) {
+    ed_cfg.col_offset = ed_cfg.rx - ed_cfg.screencols + 1;
   }
 }
 
@@ -361,7 +379,7 @@ void editor_refresh_screen(void)
   char buf[32];
   snprintf(buf, sizeof(buf), "\x1b[%d;%dH", 
     (ed_cfg.cy - ed_cfg.row_offset) + 1, 
-    (ed_cfg.cx - ed_cfg.col_offset) + 1);
+    (ed_cfg.rx - ed_cfg.col_offset) + 1);
 
   abuf_append(&ab, buf, strlen(buf));
 
@@ -459,6 +477,7 @@ void editor_init(void)
 {
   ed_cfg.cx = 0;
   ed_cfg.cy = 0;
+  ed_cfg.rx = 0;
   ed_cfg.row_offset = 0;
   ed_cfg.col_offset = 0;
   ed_cfg.numrows = 0;
