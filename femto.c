@@ -17,6 +17,7 @@
 // defines 
 
 #define FEMTO_VERSION "0.0.1"
+#define TAB_STOP 2
 
 #define CRTL_KEY(k) ((k) & 0x1f)
 
@@ -24,7 +25,9 @@
 
 struct erow {
   int size;
+  int rsize;
   char *chars;
+  char *render;
 };
 
 enum editor_key {
@@ -70,6 +73,7 @@ void abuf_free(struct abuf *ab)
 struct editor_config {
   uint32_t cx, cy;
   int row_offset;
+  int col_offset;
   int screenrows;
   int screencols;
   int numrows;
@@ -77,7 +81,7 @@ struct editor_config {
   struct termios orig_termios;
 };
 
-struct editor_config ed_config;
+struct editor_config ed_cfg;
 
 // Terminal
 void die(const char *s)
@@ -91,13 +95,13 @@ void die(const char *s)
 
 void disable_rawmode(void)
 {
-  if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &ed_config.orig_termios) == -1)
+  if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &ed_cfg.orig_termios) == -1)
     die("tcsetattr");
 }
 
 void enable_rawmode(void)
 {
-  if (tcgetattr(STDIN_FILENO, &ed_config.orig_termios) == -1)
+  if (tcgetattr(STDIN_FILENO, &ed_cfg.orig_termios) == -1)
     die("tcgetattr");
 
   atexit(disable_rawmode);
@@ -174,16 +178,48 @@ int editor_read_key(void)
 
 // row operations
 
+void editor_update_row(struct erow *row)
+{
+  int tabs = 0;
+  for (int j = 0; j < row->size; j++) {
+    if (row->chars[j] == '\t')
+      ++tabs;
+  }
+
+  free(row->render);
+  row->render = malloc(row->size + tabs*(TAB_STOP - 1) + 1);
+
+  int idx = 0;
+  for (int j = 0; j < row->size; j++) {
+    if (row->chars[j] == '\t') {
+      row->render[idx++] = ' ';
+      while (idx % TAB_STOP != 0)
+        row->render[idx++] = ' ';
+    }
+    else {
+      row->render[idx++] = row->chars[j];
+    }
+  }
+
+  row->render[idx] = '\0';
+  row->rsize = idx;
+}
+
 void editor_append_row(char *s, size_t len)
 {
-  ed_config.rows = realloc(ed_config.rows, sizeof(struct erow) * (ed_config.numrows + 1));
+  ed_cfg.rows = realloc(ed_cfg.rows, sizeof(struct erow) * (ed_cfg.numrows + 1));
 
-  int at = ed_config.numrows;
-  ed_config.rows[at].size = len;
-  ed_config.rows[at].chars = malloc(len + 1);
-  memcpy(ed_config.rows[at].chars, s, len);
-  ed_config.rows[at].chars[len] = '\0';
-  ed_config.numrows++;
+  int at = ed_cfg.numrows;
+  ed_cfg.rows[at].size = len;
+  ed_cfg.rows[at].chars = malloc(len + 1);
+  memcpy(ed_cfg.rows[at].chars, s, len);
+  ed_cfg.rows[at].chars[len] = '\0';
+
+  ed_cfg.rows[at].rsize = 0;
+  ed_cfg.rows[at].render = NULL;
+  editor_update_row(&ed_cfg.rows[at]);
+
+  ed_cfg.numrows++;
 }
 
 // file i/o
@@ -254,28 +290,34 @@ int get_window_size(int *rows, int *cols)
 // Output
 void editor_scroll(void)
 {
-  if (ed_config.cy < ed_config.row_offset) {
-    ed_config.row_offset = ed_config.cy;
+  if (ed_cfg.cy < ed_cfg.row_offset) {
+    ed_cfg.row_offset = ed_cfg.cy;
   }
-  if (ed_config.cy >= ed_config.row_offset + ed_config.screenrows) {
-    ed_config.row_offset = ed_config.cy - ed_config.screenrows + 1;
+  if (ed_cfg.cy >= ed_cfg.row_offset + ed_cfg.screenrows) {
+    ed_cfg.row_offset = ed_cfg.cy - ed_cfg.screenrows + 1;
+  }
+  if (ed_cfg.cx < ed_cfg.col_offset) {
+    ed_cfg.col_offset = ed_cfg.cx;
+  }
+  if (ed_cfg.cx >= ed_cfg.col_offset + ed_cfg.screencols) {
+    ed_cfg.col_offset = ed_cfg.cx - ed_cfg.screencols + 1;
   }
 }
 
 void editor_draw_rows(struct abuf *ab)
 {
   int y;
-  for (y = 0; y < ed_config.screenrows; y++) {
-    int file_row = y + ed_config.row_offset;
-    if (y >= ed_config.numrows) {
-      if (ed_config.numrows == 0 && y == ed_config.screenrows / 3) {
+  for (y = 0; y < ed_cfg.screenrows; y++) {
+    int file_row = y + ed_cfg.row_offset;
+    if (y >= ed_cfg.numrows) {
+      if (ed_cfg.numrows == 0 && y == ed_cfg.screenrows / 3) {
         char welcome[80];
         int welcome_len = snprintf(welcome, sizeof(welcome), 
           "Femto editor -- version %s", FEMTO_VERSION);
-        if (welcome_len > ed_config.screencols)
-          welcome_len = ed_config.screencols;
+        if (welcome_len > ed_cfg.screencols)
+          welcome_len = ed_cfg.screencols;
 
-        int padding = (ed_config.screencols - welcome_len) / 2;
+        int padding = (ed_cfg.screencols - welcome_len) / 2;
         if (padding) {
           abuf_append(ab, "~", 1);
           padding--;
@@ -290,14 +332,16 @@ void editor_draw_rows(struct abuf *ab)
       }
     }
     else {
-      int len = ed_config.rows[file_row].size;
-      if (len > ed_config.screencols) 
-        len = ed_config.screencols;
-      abuf_append(ab, ed_config.rows[file_row].chars, len);
+      int len = ed_cfg.rows[file_row].rsize - ed_cfg.col_offset;
+      if (len < 0)
+        len = 0;
+      if (len > ed_cfg.screencols) 
+        len = ed_cfg.screencols;
+      abuf_append(ab, &ed_cfg.rows[file_row].render[ed_cfg.col_offset], len);
     }
 
     abuf_append(ab, "\x1b[K", 3);
-    if (y < ed_config.screenrows - 1) {
+    if (y < ed_cfg.screenrows - 1) {
       abuf_append(ab, "\r\n", 2);
     }
   }
@@ -316,8 +360,9 @@ void editor_refresh_screen(void)
 
   char buf[32];
   snprintf(buf, sizeof(buf), "\x1b[%d;%dH", 
-    (ed_config.cy - ed_config.row_offset), ed_config.cx+1);
-    
+    (ed_cfg.cy - ed_cfg.row_offset) + 1, 
+    (ed_cfg.cx - ed_cfg.col_offset) + 1);
+
   abuf_append(&ab, buf, strlen(buf));
 
   abuf_append(&ab, "\x1b[?25h", 6);
@@ -330,28 +375,46 @@ void editor_refresh_screen(void)
 
 void editor_move_cursor(int key)
 {
+  struct erow *row = ed_cfg.cy >= ed_cfg.numrows ? NULL : &ed_cfg.rows[ed_cfg.cy];
+
   switch (key) {
     case 'h':
     case ARROW_LEFT:
-      if (ed_config.cx > 0)
-        ed_config.cx--;
+      if (ed_cfg.cx > 0) {
+        ed_cfg.cx--;
+      }
+      else if (ed_cfg.cy > 0) {
+        ed_cfg.cy--;
+        ed_cfg.cx = ed_cfg.rows[ed_cfg.cy].size;
+      }
       break;
     case 'l':
     case ARROW_RIGHT:
-      if (ed_config.cx < ed_config.screencols - 1)
-        ed_config.cx++;
+      if (row && ed_cfg.cx < row->size) {
+        ed_cfg.cx++;
+      }
+      else if (row && ed_cfg.cx == row->size) {
+        ed_cfg.cy++;
+        ed_cfg.cx = 0;
+      }
       break;
     case 'j':
     case ARROW_DOWN:
-      if (ed_config.cy < ed_config.numrows)
-        ed_config.cy++;
+      if (ed_cfg.cy < ed_cfg.numrows)
+        ed_cfg.cy++;
       break;
     case 'k':
     case ARROW_UP:
-      if (ed_config.cy > 0)
-      ed_config.cy--;
+      if (ed_cfg.cy > 0)
+      ed_cfg.cy--;
       break;
-  }  
+  }
+  
+  row = ed_cfg.cy >= ed_cfg.numrows ? NULL : &ed_cfg.rows[ed_cfg.cy];
+  int row_len = row ? row->size : 0;
+  if (ed_cfg.cx > row_len) {
+    ed_cfg.cx = row_len;
+  }
 }
 
 void editor_process_keypress(void)
@@ -365,15 +428,15 @@ void editor_process_keypress(void)
       exit(0);
       break;
     case HOME_KEY:
-      ed_config.cx = 0;
+      ed_cfg.cx = 0;
       break;
     case END_KEY:
-      ed_config.cx = ed_config.screencols - 1;
+      ed_cfg.cx = ed_cfg.screencols - 1;
       break;
     case PAGE_UP:
     case PAGE_DOWN:
       {
-        int times = ed_config.screenrows;
+        int times = ed_cfg.screenrows;
         while (times--)
           editor_move_cursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
       }
@@ -394,13 +457,14 @@ void editor_process_keypress(void)
 // Init
 void editor_init(void)
 {
-  ed_config.cx = 0;
-  ed_config.cy = 0;
-  ed_config.row_offset = 0;
-  ed_config.numrows = 0;
-  ed_config.rows = NULL;
+  ed_cfg.cx = 0;
+  ed_cfg.cy = 0;
+  ed_cfg.row_offset = 0;
+  ed_cfg.col_offset = 0;
+  ed_cfg.numrows = 0;
+  ed_cfg.rows = NULL;
 
-  if (get_window_size(&ed_config.screenrows, &ed_config.screencols) == -1)
+  if (get_window_size(&ed_cfg.screenrows, &ed_cfg.screencols) == -1)
     die("get_window_size");
 }
 
