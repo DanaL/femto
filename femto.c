@@ -33,6 +33,7 @@ struct erow {
 };
 
 enum editor_key {
+  BACKSPACE = 127,
   ARROW_LEFT = 1000,
   ARROW_RIGHT,
   ARROW_UP,
@@ -238,6 +239,29 @@ void editor_append_row(char *s, size_t len)
   editor_update_row(&ed_cfg.rows[at]);
 
   ed_cfg.numrows++;
+}
+
+void editor_row_insert_char(struct erow *row, int at, int c) 
+{
+  if (at < 0 || at > row->size)
+    at = row->size;
+  row->chars = realloc(row->chars, row->size + 2);
+  memmove(&row->chars[at + 1], &row->chars[at], row->size - at + 1);
+  row->size++;
+  row->chars[at] = c;
+
+  editor_update_row(row);
+}
+
+// editor operations
+
+void editor_insert_char(int c)
+{
+  if (ed_cfg.cy == ed_cfg.numrows) {
+    editor_append_row("", 0);
+  }
+  editor_row_insert_char(&ed_cfg.rows[ed_cfg.cy], ed_cfg.cx, c);
+  ++ed_cfg.cx;
 }
 
 // file i/o
@@ -450,7 +474,7 @@ void editor_move_cursor(int key)
   struct erow *row = ed_cfg.cy >= ed_cfg.numrows ? NULL : &ed_cfg.rows[ed_cfg.cy];
 
   switch (key) {
-    case 'h':
+    //case 'h':
     case ARROW_LEFT:
       if (ed_cfg.cx > 0) {
         ed_cfg.cx--;
@@ -460,7 +484,7 @@ void editor_move_cursor(int key)
         ed_cfg.cx = ed_cfg.rows[ed_cfg.cy].size;
       }
       break;
-    case 'l':
+    //case 'l':
     case ARROW_RIGHT:
       if (row && ed_cfg.cx < row->size) {
         ed_cfg.cx++;
@@ -470,12 +494,12 @@ void editor_move_cursor(int key)
         ed_cfg.cx = 0;
       }
       break;
-    case 'j':
+    //case 'j':
     case ARROW_DOWN:
       if (ed_cfg.cy < ed_cfg.numrows)
         ed_cfg.cy++;
       break;
-    case 'k':
+    //case 'k':
     case ARROW_UP:
       if (ed_cfg.cy > 0)
       ed_cfg.cy--;
@@ -494,6 +518,9 @@ void editor_process_keypress(void)
   int c = editor_read_key();
 
   switch (c) {
+    case '\r':
+      // TODO
+      break;
     case CTRL_KEY('q'):
       write(STDOUT_FILENO, "\x1b[2J", 4);
       write(STDOUT_FILENO, "\x1b[H", 3);
@@ -505,6 +532,11 @@ void editor_process_keypress(void)
     case END_KEY:
       if (ed_cfg.cy < ed_cfg.numrows)
         ed_cfg.cx = ed_cfg.rows[ed_cfg.cy].size;      
+      break;
+    case BACKSPACE:
+    case CTRL_KEY('h'):
+    case DEL_KEY:
+      // TODO
       break;
     case PAGE_UP:
     case PAGE_DOWN:
@@ -523,15 +555,21 @@ void editor_process_keypress(void)
           editor_move_cursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
       }
       break;
-    case 'h':
-    case 'j':
-    case 'k':
-    case 'l':
+    //case 'h':
+    //case 'j':
+    //case 'k':
+    //case 'l':
     case ARROW_UP:
     case ARROW_DOWN:
     case ARROW_LEFT:
     case ARROW_RIGHT:
       editor_move_cursor(c);
+      break;
+    case CTRL_KEY('l'):
+    case '\x1b':
+      break;
+    default:
+      editor_insert_char(c);
       break;
   }
 }
