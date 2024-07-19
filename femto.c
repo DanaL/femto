@@ -79,6 +79,7 @@ struct editor_config {
   int screencols;
   int numrows;
   struct erow *rows;
+  char *filename;
   struct termios orig_termios;
 };
 
@@ -238,6 +239,9 @@ void editor_append_row(char *s, size_t len)
 // file i/o
 void editor_open(char *filename)
 {
+  free(ed_cfg.filename);
+  ed_cfg.filename = strdup(filename);
+
   FILE *fp = fopen(filename, "r");
   if (!fp)
     die("fopen");
@@ -359,10 +363,34 @@ void editor_draw_rows(struct abuf *ab)
     }
 
     abuf_append(ab, "\x1b[K", 3);
-    if (y < ed_cfg.screenrows - 1) {
-      abuf_append(ab, "\r\n", 2);
+    abuf_append(ab, "\r\n", 2);
+  }
+}
+
+void editor_draw_status_bar(struct abuf *ab)
+{
+  abuf_append(ab, "\x1b[7m", 4);
+  char status[80], rstatus[80];
+
+  int len = snprintf(status, sizeof(status), "%.20s - %d lines",
+    ed_cfg.filename ? ed_cfg.filename : "[No Name]", ed_cfg.numrows);
+  int rlen = snprintf(rstatus, sizeof(rstatus), "%d/%d", ed_cfg.cy + 1, 
+    ed_cfg.numrows + 1);
+  if (len > ed_cfg.screencols)
+    len = ed_cfg.screencols;
+  abuf_append(ab, status, len);
+  while (len < ed_cfg.screencols) {
+    if (ed_cfg.screencols - len == rlen) {
+      abuf_append(ab, rstatus, rlen);
+      break;
+    }
+    else {
+      abuf_append(ab, " ", 1);
+      ++len;
     }
   }
+
+  abuf_append(ab, "\x1b[m", 3);
 }
 
 void editor_refresh_screen(void)
@@ -375,6 +403,7 @@ void editor_refresh_screen(void)
   abuf_append(&ab, "\x1b[H", 3);
 
   editor_draw_rows(&ab);
+  editor_draw_status_bar(&ab);
 
   char buf[32];
   snprintf(buf, sizeof(buf), "\x1b[%d;%dH", 
@@ -492,9 +521,11 @@ void editor_init(void)
   ed_cfg.col_offset = 0;
   ed_cfg.numrows = 0;
   ed_cfg.rows = NULL;
+  ed_cfg.filename = NULL;
 
   if (get_window_size(&ed_cfg.screenrows, &ed_cfg.screencols) == -1)
     die("get_window_size");
+  --ed_cfg.screenrows;
 }
 
 int main(int argc, char **argv)
