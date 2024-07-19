@@ -449,11 +449,21 @@ void editor_process_keypress(void)
       ed_cfg.cx = 0;
       break;
     case END_KEY:
-      ed_cfg.cx = ed_cfg.screencols - 1;
+      if (ed_cfg.cy < ed_cfg.numrows)
+        ed_cfg.cx = ed_cfg.rows[ed_cfg.cy].size;      
       break;
     case PAGE_UP:
     case PAGE_DOWN:
       {
+        if (c == PAGE_UP) {
+          ed_cfg.cy = ed_cfg.row_offset;          
+        }
+        else if (c == PAGE_DOWN) {
+          ed_cfg.cy = ed_cfg.row_offset + ed_cfg.screenrows - 1;
+          if (ed_cfg.cy > ed_cfg.numrows)
+            ed_cfg.cy = ed_cfg.numrows;          
+        }
+
         int times = ed_cfg.screenrows;
         while (times--)
           editor_move_cursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
