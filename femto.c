@@ -5,6 +5,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -12,6 +13,7 @@
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <termios.h>
+#include <time.h>
 #include <unistd.h>
 
 // defines 
@@ -80,6 +82,8 @@ struct editor_config {
   int numrows;
   struct erow *rows;
   char *filename;
+  char status_msg[80];
+  time_t status_msg_time;
   struct termios orig_termios;
 };
 
@@ -391,6 +395,17 @@ void editor_draw_status_bar(struct abuf *ab)
   }
 
   abuf_append(ab, "\x1b[m", 3);
+  abuf_append(ab, "\r\n", 2);
+}
+
+void editor_draw_message_bar(struct abuf *ab)
+{
+  abuf_append(ab, "\x1b[K", 3);
+  int msglen = strlen(ed_cfg.status_msg);
+  if (msglen > ed_cfg.screencols)
+    msglen = ed_cfg.screencols;
+  if (msglen && time(NULL) - ed_cfg.status_msg_time < 5)
+    abuf_append(ab, ed_cfg.status_msg, msglen);
 }
 
 void editor_refresh_screen(void)
@@ -404,7 +419,8 @@ void editor_refresh_screen(void)
 
   editor_draw_rows(&ab);
   editor_draw_status_bar(&ab);
-
+  editor_draw_message_bar(&ab);
+  
   char buf[32];
   snprintf(buf, sizeof(buf), "\x1b[%d;%dH", 
     (ed_cfg.cy - ed_cfg.row_offset) + 1, 
@@ -416,6 +432,15 @@ void editor_refresh_screen(void)
 
   write(STDERR_FILENO, ab.b, ab.len);
   abuf_free(&ab);
+}
+
+void editor_set_status_message(const char *fmt, ...)
+{
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(ed_cfg.status_msg, sizeof(ed_cfg.status_msg), fmt, ap);
+  va_end(ap);
+  ed_cfg.status_msg_time = time(NULL);
 }
 
 // Input
@@ -522,10 +547,12 @@ void editor_init(void)
   ed_cfg.numrows = 0;
   ed_cfg.rows = NULL;
   ed_cfg.filename = NULL;
+  ed_cfg.status_msg[0] = '\0';
+  ed_cfg.status_msg_time = 0;
 
   if (get_window_size(&ed_cfg.screenrows, &ed_cfg.screencols) == -1)
     die("get_window_size");
-  --ed_cfg.screenrows;
+  ed_cfg.screenrows -= 2;
 }
 
 int main(int argc, char **argv)
@@ -537,6 +564,8 @@ int main(int argc, char **argv)
     editor_open(argv[1]);
   }
   
+  editor_set_status_message("HELP: Ctrl-Q = quit");
+
   while (1) {
     editor_refresh_screen();
     editor_process_keypress();
