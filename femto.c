@@ -232,11 +232,15 @@ void editor_update_row(struct erow *row)
   row->rsize = idx;
 }
 
-void editor_append_row(char *s, size_t len)
+void editor_insert_row(int at, char *s, size_t len)
 {
-  ed_cfg.rows = realloc(ed_cfg.rows, sizeof(struct erow) * (ed_cfg.numrows + 1));
+  if (at < 0 || at > ed_cfg.numrows)
+    return;
 
-  int at = ed_cfg.numrows;
+  ed_cfg.rows = realloc(ed_cfg.rows, sizeof(struct erow) * (ed_cfg.numrows + 1));
+  memmove(&ed_cfg.rows[at + 1], &ed_cfg.rows[at], 
+    sizeof(struct erow) * (ed_cfg.numrows - at));
+
   ed_cfg.rows[at].size = len;
   ed_cfg.rows[at].chars = malloc(len + 1);
   memcpy(ed_cfg.rows[at].chars, s, len);
@@ -306,10 +310,29 @@ void editor_row_del_char(struct erow *row, int at)
 void editor_insert_char(int c)
 {
   if (ed_cfg.cy == ed_cfg.numrows) {
-    editor_append_row("", 0);
+    editor_insert_row(ed_cfg.numrows, "", 0);
   }
   editor_row_insert_char(&ed_cfg.rows[ed_cfg.cy], ed_cfg.cx, c);
   ++ed_cfg.cx;
+}
+
+void editor_insert_newline(void)
+{
+  if (ed_cfg.cx == 0) {
+    editor_insert_row(ed_cfg.cy, "", 0);
+  }
+  else {
+    struct erow *row = &ed_cfg.rows[ed_cfg.cy];
+    editor_insert_row(ed_cfg.cy + 1, &row->chars[ed_cfg.cx],
+      row->size - ed_cfg.cx);
+    row = &ed_cfg.rows[ed_cfg.cy];
+    row->size = ed_cfg.cx;
+    row->chars[row->size] = '\0';
+    editor_update_row(row);
+  }
+
+  ++ed_cfg.cy;
+  ed_cfg.cx = 0;
 }
 
 void editor_del_char(void)
@@ -371,7 +394,7 @@ void editor_open(char *filename)
                            line[line_len - 1] == '\r'))
       line_len--;
 
-    editor_append_row(line, line_len);
+    editor_insert_row(ed_cfg.numrows, line, line_len);
   }
 
   free(line);
@@ -637,7 +660,7 @@ void editor_process_keypress(void)
 
   switch (c) {
     case '\r':
-      // TODO
+      editor_insert_newline();
       break;
     case CTRL_KEY('q'):
       if (ed_cfg.dirty && quit_times > 0) {
