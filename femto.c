@@ -250,6 +250,24 @@ void editor_append_row(char *s, size_t len)
   ed_cfg.dirty = true;
 }
 
+void editor_free_row(struct erow *row)
+{
+  free(row->render);
+  free(row->chars);
+}
+
+void editor_del_row(int at)
+{
+  if (at < 0 || at >= ed_cfg.numrows)
+    return;
+
+  editor_free_row(&ed_cfg.rows[at]);
+  memmove(&ed_cfg.rows[at], &ed_cfg.rows[at + 1], 
+    sizeof(struct erow) * (ed_cfg.numrows - at - 1));
+  --ed_cfg.numrows;
+  ed_cfg.dirty = true;
+}
+
 void editor_row_insert_char(struct erow *row, int at, int c) 
 {
   if (at < 0 || at > row->size)
@@ -263,6 +281,26 @@ void editor_row_insert_char(struct erow *row, int at, int c)
   ed_cfg.dirty = true;
 }
 
+void editor_row_append_str(struct erow *row, char *s, size_t len)
+{
+  row->chars = realloc(row->chars, row->size + len + 1);
+  memcpy(&row->chars[row->size], s, len);
+  row->size += len;
+  row->chars[row->size] = '\0';
+  editor_update_row(row);
+  ed_cfg.dirty = true;
+}
+
+void editor_row_del_char(struct erow *row, int at)
+{
+  if (at < 0 || at >= row->size)
+    return;
+  memmove(&row->chars[at], &row->chars[at + 1], row->size - at);
+  --row->size;
+  editor_update_row(row);
+  ed_cfg.dirty = true;
+}
+
 // editor operations
 
 void editor_insert_char(int c)
@@ -272,6 +310,26 @@ void editor_insert_char(int c)
   }
   editor_row_insert_char(&ed_cfg.rows[ed_cfg.cy], ed_cfg.cx, c);
   ++ed_cfg.cx;
+}
+
+void editor_del_char(void)
+{
+  if (ed_cfg.cy == ed_cfg.numrows)
+    return;
+  if (ed_cfg.cx == 0 && ed_cfg.cy == 0)
+    return;
+
+  struct erow *row = &ed_cfg.rows[ed_cfg.cy];
+  if (ed_cfg.cx > 0) {
+    editor_row_del_char(row, ed_cfg.cx - 1);
+    --ed_cfg.cx;
+  }
+  else {
+    ed_cfg.cx = ed_cfg.rows[ed_cfg.cy - 1].size;
+    editor_row_append_str(&ed_cfg.rows[ed_cfg.cy - 1], row->chars, row->size);
+    editor_del_row(ed_cfg.cy);
+    --ed_cfg.cy;
+  }
 }
 
 // file i/o
@@ -606,7 +664,9 @@ void editor_process_keypress(void)
     case BACKSPACE:
     case CTRL_KEY('h'):
     case DEL_KEY:
-      // TODO
+      if (c == DEL_KEY)
+        editor_move_cursor(ARROW_RIGHT);
+      editor_del_char();
       break;
     case PAGE_UP:
     case PAGE_DOWN:
