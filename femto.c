@@ -655,6 +655,36 @@ char *editor_prompt(char *prompt)
 	}
 }
 
+void editor_jump_to_line(void)
+{
+  char *txt = editor_prompt("Goto line: %s");
+  
+  bool valid = true;
+  char *p = txt;
+  while (*p != '\0') {
+    if (!isdigit(*p)) {
+      valid = false;
+      break;
+    }
+    ++p;
+  }
+
+  if (valid) {
+    int ln = atoi(txt);
+    // in other editors, I often type 0 instead of 1 when I want to
+    // go to the first line of a file because 0-index brain, so I'll
+    // just treat it as 1.
+    if (ln == 0)
+      ed_cfg.cy = 0;
+    else if (ln >= ed_cfg.numrows)
+      ed_cfg.cy = ed_cfg.numrows;
+    else      
+      ed_cfg.cy = ln;
+  }
+
+  free(txt);
+}
+
 void editor_move_cursor(int key)
 {
   struct erow *row = ed_cfg.cy >= ed_cfg.numrows ? NULL : &ed_cfg.rows[ed_cfg.cy];
@@ -722,6 +752,9 @@ void editor_process_keypress(void)
       break;
     case CTRL_KEY('s'):      
       editor_save();
+      break;
+    case CTRL_KEY('g'):
+      editor_jump_to_line();
       break;
     case HOME_KEY:
       ed_cfg.cx = 0;
