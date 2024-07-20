@@ -5,7 +5,9 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -20,6 +22,7 @@
 
 #define FEMTO_VERSION "0.0.1"
 #define TAB_STOP 2
+#define FEMTO_QUIT_TIMES 3
 
 #define CRTL_KEY(k) ((k) & 0x1f)
 
@@ -82,6 +85,7 @@ struct editor_config {
   int screencols;
   int numrows;
   struct erow *rows;
+  bool dirty;
   char *filename;
   char status_msg[80];
   time_t status_msg_time;
@@ -90,7 +94,11 @@ struct editor_config {
 
 struct editor_config ed_cfg;
 
-// Terminal
+// prototypes 
+
+void editor_set_status_message(const char *fmt, ...);
+
+// terminal
 void die(const char *s)
 {
   write(STDOUT_FILENO, "\x1b[2J", 4);
@@ -239,6 +247,7 @@ void editor_append_row(char *s, size_t len)
   editor_update_row(&ed_cfg.rows[at]);
 
   ed_cfg.numrows++;
+  ed_cfg.dirty = true;
 }
 
 void editor_row_insert_char(struct erow *row, int at, int c) 
@@ -251,6 +260,7 @@ void editor_row_insert_char(struct erow *row, int at, int c)
   row->chars[at] = c;
 
   editor_update_row(row);
+  ed_cfg.dirty = true;
 }
 
 // editor operations
@@ -265,6 +275,27 @@ void editor_insert_char(int c)
 }
 
 // file i/o
+
+char *editor_rows_to_str(int *buflen)
+{
+  int totlen = 0;
+  
+  for (int j = 0; j < ed_cfg.numrows; j++)
+    totlen += ed_cfg.rows[j].size + 1;
+  *buflen = totlen;
+
+  char *buf = malloc(totlen);
+  char *p = buf;
+  for (int j = 0; j < ed_cfg.numrows; j++) {
+    memcpy(p, ed_cfg.rows[j].chars, ed_cfg.rows[j].size);
+    p += ed_cfg.rows[j].size;
+    *p = '\n';
+    ++p;
+  }
+
+  return buf;
+}
+
 void editor_open(char *filename)
 {
   free(ed_cfg.filename);
@@ -287,6 +318,33 @@ void editor_open(char *filename)
 
   free(line);
   fclose(fp);
+  ed_cfg.dirty = false;
+}
+
+void editor_save(void)
+{
+  if (!ed_cfg.filename)
+    return;
+
+  int len;
+  char *buf = editor_rows_to_str(&len);
+
+  int fd = open(ed_cfg.filename, O_RDWR | O_CREAT, 0644);
+  if (fd != -1) {
+    if (ftruncate(fd, len) != -1) {
+      if (write(fd, buf, len) == len) {        
+        close(fd);
+        free(buf);
+        ed_cfg.dirty = false;
+        editor_set_status_message("%d bytes written to disk", len);
+        return;
+      }
+    }
+    close(fd);
+  }
+
+  free(buf);
+  editor_set_status_message("Buffer not saved! I/O error: %s", strerror(errno));
 }
 
 int get_cursor_position(int *rows, int *cols)
@@ -400,8 +458,9 @@ void editor_draw_status_bar(struct abuf *ab)
   abuf_append(ab, "\x1b[7m", 4);
   char status[80], rstatus[80];
 
-  int len = snprintf(status, sizeof(status), "%.20s - %d lines",
-    ed_cfg.filename ? ed_cfg.filename : "[No Name]", ed_cfg.numrows);
+  int len = snprintf(status, sizeof(status), "%.20s - %d lines %s",
+    ed_cfg.filename ? ed_cfg.filename : "[No Name]", ed_cfg.numrows,
+    ed_cfg.dirty ? "(modified)" : "");
   int rlen = snprintf(rstatus, sizeof(rstatus), "%d/%d", ed_cfg.cy + 1, 
     ed_cfg.numrows + 1);
   if (len > ed_cfg.screencols)
@@ -515,6 +574,7 @@ void editor_move_cursor(int key)
 
 void editor_process_keypress(void)
 {
+  static int quit_times = FEMTO_QUIT_TIMES;
   int c = editor_read_key();
 
   switch (c) {
@@ -522,9 +582,19 @@ void editor_process_keypress(void)
       // TODO
       break;
     case CTRL_KEY('q'):
+      if (ed_cfg.dirty && quit_times > 0) {
+        editor_set_status_message("WARNING!!! File has unsaved changes. "
+          "Press Ctrl-Q %d more times to quit.", quit_times);
+        --quit_times;
+        return;
+      }
+
       write(STDOUT_FILENO, "\x1b[2J", 4);
       write(STDOUT_FILENO, "\x1b[H", 3);
       exit(0);
+      break;
+    case CTRL_KEY('s'):      
+      editor_save();
       break;
     case HOME_KEY:
       ed_cfg.cx = 0;
@@ -572,6 +642,8 @@ void editor_process_keypress(void)
       editor_insert_char(c);
       break;
   }
+
+  quit_times = FEMTO_QUIT_TIMES;
 }
 
 // Init
@@ -584,6 +656,7 @@ void editor_init(void)
   ed_cfg.col_offset = 0;
   ed_cfg.numrows = 0;
   ed_cfg.rows = NULL;
+  ed_cfg.dirty = false;
   ed_cfg.filename = NULL;
   ed_cfg.status_msg[0] = '\0';
   ed_cfg.status_msg_time = 0;
@@ -602,7 +675,7 @@ int main(int argc, char **argv)
     editor_open(argv[1]);
   }
   
-  editor_set_status_message("HELP: Ctrl-Q = quit");
+  editor_set_status_message("HELP: Ctrl-S = save | Ctrl-Q = quit");
 
   while (1) {
     editor_refresh_screen();
