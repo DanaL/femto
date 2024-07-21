@@ -768,6 +768,13 @@ void editor_jump_to_line(void)
       ed_cfg.cy = ed_cfg.numrows;
     else      
       ed_cfg.cy = ln;
+    
+    // I like to have the line we jumped to be around 1/3 the way down 
+    // the screen
+    int pos = ln - (ed_cfg.screenrows / 3);
+    if (pos < 1)
+      pos = ed_cfg.numrows;
+    ed_cfg.row_offset = pos;
   }
 
   free(txt);
