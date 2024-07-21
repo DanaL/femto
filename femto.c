@@ -1,4 +1,3 @@
-
 #define _DEFAULT_SOURCE
 #define _BSD_SOURCE
 #define _GNU_SOURCE
@@ -84,6 +83,7 @@ struct editor_config {
   int screenrows;
   int screencols;
   int numrows;
+  int left_margin;
   struct erow *rows;
   bool dirty;
   char *filename;
@@ -330,27 +330,30 @@ void editor_insert_char(int c)
   if (ed_cfg.cy == ed_cfg.numrows) {
     editor_insert_row(ed_cfg.numrows, "", 0);
   }
-  editor_row_insert_char(&ed_cfg.rows[ed_cfg.cy], ed_cfg.cx, c);
+
+  int at = ed_cfg.cx - ed_cfg.left_margin - 1;
+  editor_row_insert_char(&ed_cfg.rows[ed_cfg.cy], at, c);
   ++ed_cfg.cx;
 }
 
 void editor_insert_newline(void)
 {
-  if (ed_cfg.cx == 0) {
+  if (ed_cfg.cx == ed_cfg.left_margin + 1) {
     editor_insert_row(ed_cfg.cy, "", 0);
   }
   else {
+    int pos_in_line = ed_cfg.cx - ed_cfg.left_margin - 1;
     struct erow *row = &ed_cfg.rows[ed_cfg.cy];
-    editor_insert_row(ed_cfg.cy + 1, &row->chars[ed_cfg.cx],
-      row->size - ed_cfg.cx);
+    editor_insert_row(ed_cfg.cy + 1, &row->chars[pos_in_line],
+      row->size -pos_in_line);
     row = &ed_cfg.rows[ed_cfg.cy];
-    row->size = ed_cfg.cx;
+    row->size = pos_in_line;
     row->chars[row->size] = '\0';
     editor_update_row(row);
   }
 
   ++ed_cfg.cy;
-  ed_cfg.cx = 0;
+  ed_cfg.cx = ed_cfg.left_margin + 1;
 }
 
 void editor_del_char(void)
@@ -361,12 +364,13 @@ void editor_del_char(void)
     return;
 
   struct erow *row = &ed_cfg.rows[ed_cfg.cy];
-  if (ed_cfg.cx > 0) {
-    editor_row_del_char(row, ed_cfg.cx - 1);
+  if (ed_cfg.cx > ed_cfg.left_margin + 1) {
+    int at = ed_cfg.cx - ed_cfg.left_margin - 2;
+    editor_row_del_char(row, at);
     --ed_cfg.cx;
   }
   else {
-    ed_cfg.cx = ed_cfg.rows[ed_cfg.cy - 1].size;
+    ed_cfg.cx = ed_cfg.rows[ed_cfg.cy - 1].size + ed_cfg.left_margin + 1;
     editor_row_append_str(&ed_cfg.rows[ed_cfg.cy - 1], row->chars, row->size);
     editor_del_row(ed_cfg.cy);
     --ed_cfg.cy;
@@ -581,8 +585,22 @@ void editor_scroll(void)
   }
 }
 
+// draw each row that is on screen. Either the row of text in our buffer
+// or an empty line with a ~
 void editor_draw_rows(struct abuf *ab)
-{
+{ 
+  if (ed_cfg.numrows > 0)
+  {
+    // figure out how wide we need the left margin to be
+    char buff[80];
+    snprintf(buff, 80, "%d", ed_cfg.numrows);
+    int left_padding = strlen(buff) + 1;
+    
+    ed_cfg.left_margin = left_padding;
+    if (ed_cfg.cx <= ed_cfg.left_margin)
+      ed_cfg.cx = ed_cfg.left_margin + 1;
+  }
+
   int y;
   for (y = 0; y < ed_cfg.screenrows; y++) {
     int file_row = y + ed_cfg.row_offset;
@@ -614,7 +632,15 @@ void editor_draw_rows(struct abuf *ab)
         len = 0;
       if (len > ed_cfg.screencols) 
         len = ed_cfg.screencols;
-      abuf_append(ab, &ed_cfg.rows[file_row].render[ed_cfg.col_offset], len);
+      
+      int bll = strlen(&ed_cfg.rows[file_row].render[ed_cfg.col_offset]) 
+                    + ed_cfg.left_margin + 1;
+      char *buff_line = malloc(bll);
+      sprintf(buff_line, "%*d ", ed_cfg.left_margin, file_row + 1);
+      strcpy((buff_line + ed_cfg.left_margin + 1), &ed_cfg.rows[file_row].render[ed_cfg.col_offset]);
+      abuf_append(ab, buff_line, bll);
+      free(buff_line);
+      //abuf_append(ab, &ed_cfg.rows[file_row].render[ed_cfg.col_offset], len);
     }
 
     abuf_append(ab, "\x1b[K", 3);
@@ -783,34 +809,32 @@ void editor_jump_to_line(void)
 void editor_move_cursor(int key)
 {
   struct erow *row = ed_cfg.cy >= ed_cfg.numrows ? NULL : &ed_cfg.rows[ed_cfg.cy];
+  int right_margin = row->size + ed_cfg.left_margin + 1;
 
   switch (key) {
     //case 'h':
     case ARROW_LEFT:
-      if (ed_cfg.cx > 0) {
+      if (ed_cfg.cx > ed_cfg.left_margin + 1) {
         ed_cfg.cx--;
       }
       else if (ed_cfg.cy > 0) {
         ed_cfg.cy--;
-        ed_cfg.cx = ed_cfg.rows[ed_cfg.cy].size;
+        ed_cfg.cx = ed_cfg.rows[ed_cfg.cy].size + 5; //+ ed_cfg.left_margin;
       }
       break;
-    //case 'l':
     case ARROW_RIGHT:
-      if (row && ed_cfg.cx < row->size) {
-        ed_cfg.cx++;
+      if (row && ed_cfg.cx < right_margin) {
+        ed_cfg.cx++;        
       }
-      else if (row && ed_cfg.cx == row->size) {
+      else if (row && ed_cfg.cx >= right_margin) {
         ed_cfg.cy++;
-        ed_cfg.cx = 0;
-      }
+        ed_cfg.cx = ed_cfg.left_margin + 1;
+      }      
       break;
-    //case 'j':
     case ARROW_DOWN:
       if (ed_cfg.cy < ed_cfg.numrows)
         ed_cfg.cy++;
       break;
-    //case 'k':
     case ARROW_UP:
       if (ed_cfg.cy > 0)
       ed_cfg.cy--;
@@ -818,7 +842,7 @@ void editor_move_cursor(int key)
   }
   
   row = ed_cfg.cy >= ed_cfg.numrows ? NULL : &ed_cfg.rows[ed_cfg.cy];
-  int row_len = row ? row->size : 0;
+  int row_len = row ? right_margin : ed_cfg.left_margin + 1;
   if (ed_cfg.cx > row_len) {
     ed_cfg.cx = row_len;
   }
@@ -885,10 +909,6 @@ void editor_process_keypress(void)
           editor_move_cursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
       }
       break;
-    //case 'h':
-    //case 'j':
-    //case 'k':
-    //case 'l':
     case ARROW_UP:
     case ARROW_DOWN:
     case ARROW_LEFT:
@@ -915,6 +935,7 @@ void editor_init(void)
   ed_cfg.row_offset = 0;
   ed_cfg.col_offset = 0;
   ed_cfg.numrows = 0;
+  ed_cfg.left_margin = 0;
   ed_cfg.rows = NULL;
   ed_cfg.dirty = false;
   ed_cfg.filename = NULL;
@@ -941,6 +962,4 @@ int main(int argc, char **argv)
     editor_refresh_screen();
     editor_process_keypress();
   }
-  
-  printf("goodbye.\r\n");
 }
