@@ -8,7 +8,6 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
-#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
@@ -19,7 +18,7 @@
 
 // defines 
 
-#define FEMTO_VERSION "0.0.1"
+#define FEMTO_VERSION "0.1.0"
 #define TAB_STOP 2
 #define FEMTO_QUIT_TIMES 3
 
@@ -76,7 +75,7 @@ void abuf_free(struct abuf *ab)
 
 // Data
 struct editor_config {
-  uint32_t cx, cy;
+  int cx, cy;
   int rx;
   int row_offset;
   int col_offset;
@@ -814,17 +813,16 @@ void editor_jump_to_line(void)
 void editor_move_cursor(int key)
 {
   struct erow *row = ed_cfg.cy >= ed_cfg.numrows ? NULL : &ed_cfg.rows[ed_cfg.cy];
-  int right_margin = row->size + ed_cfg.left_margin + 1;
-
+  int right_margin = row ? row->size + ed_cfg.left_margin + 1 : 0;
+  
   switch (key) {
-    //case 'h':
     case ARROW_LEFT:
       if (ed_cfg.cx > ed_cfg.left_margin + 1) {
         ed_cfg.cx--;
       }
       else if (ed_cfg.cy > 0) {
         ed_cfg.cy--;
-        ed_cfg.cx = ed_cfg.rows[ed_cfg.cy].size + 5; //+ ed_cfg.left_margin;
+        ed_cfg.cx = ed_cfg.rows[ed_cfg.cy].size + ed_cfg.left_margin + 1;
       }
       break;
     case ARROW_RIGHT:
@@ -836,13 +834,13 @@ void editor_move_cursor(int key)
         ed_cfg.cx = ed_cfg.left_margin + 1;
       }      
       break;
-    case ARROW_DOWN:
+    case ARROW_DOWN:      
       if (ed_cfg.cy < ed_cfg.numrows - 1)
         ed_cfg.cy++;
       break;
     case ARROW_UP:
       if (ed_cfg.cy > 0)
-      ed_cfg.cy--;
+        ed_cfg.cy--;
       break;
   }
   
