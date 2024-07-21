@@ -657,7 +657,7 @@ void editor_draw_status_bar(struct abuf *ab)
     ed_cfg.filename ? ed_cfg.filename : "[No Name]", ed_cfg.numrows,
     ed_cfg.dirty ? "(modified)" : "");
   int rlen = snprintf(rstatus, sizeof(rstatus), "%d/%d", ed_cfg.cy + 1, 
-    ed_cfg.numrows + 1);
+    ed_cfg.numrows);
   if (len > ed_cfg.screencols)
     len = ed_cfg.screencols;
   abuf_append(ab, status, len);
