@@ -338,7 +338,12 @@ void editor_insert_char(int c)
 
 void editor_insert_newline(void)
 {
-  if (ed_cfg.cx == ed_cfg.left_margin + 1) {
+  if (ed_cfg.numrows == 0) {
+    editor_insert_row(0, "", 0);
+    ed_cfg.cx = ed_cfg.left_margin + 2;
+    return;
+  }
+  else if (ed_cfg.cx <= ed_cfg.left_margin + 1) {
     editor_insert_row(ed_cfg.cy, "", 0);
   }
   else {
@@ -594,7 +599,7 @@ void editor_draw_rows(struct abuf *ab)
     // figure out how wide we need the left margin to be
     char buff[80];
     snprintf(buff, 80, "%d", ed_cfg.numrows);
-    int left_padding = strlen(buff) + 1;
+    int left_padding = strlen(buff);
     
     ed_cfg.left_margin = left_padding;
     if (ed_cfg.cx <= ed_cfg.left_margin)
@@ -826,13 +831,13 @@ void editor_move_cursor(int key)
       if (row && ed_cfg.cx < right_margin) {
         ed_cfg.cx++;        
       }
-      else if (row && ed_cfg.cx >= right_margin) {
+      else if (row && ed_cfg.cx >= right_margin && ed_cfg.cy < ed_cfg.numrows - 1) {
         ed_cfg.cy++;
         ed_cfg.cx = ed_cfg.left_margin + 1;
       }      
       break;
     case ARROW_DOWN:
-      if (ed_cfg.cy < ed_cfg.numrows)
+      if (ed_cfg.cy < ed_cfg.numrows - 1)
         ed_cfg.cy++;
       break;
     case ARROW_UP:
