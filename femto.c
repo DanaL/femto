@@ -455,15 +455,40 @@ void editor_save(void)
 
 void editor_find_callback(char *query, int key)
 {
+  static int last_match = -1;
+  static int direction = 1;
+
   if (key == '\r' || key == '\x1b') {
+    last_match = -1;
+    direction = 1;
     return;
   }
+  else if (key == ARROW_RIGHT || key == ARROW_DOWN) {
+    direction = 1;
+  }
+  else if (key == ARROW_LEFT || key == ARROW_UP) {
+    direction = -1;
+  }
+  else {
+    last_match = -1;
+    direction = 1;
+  }
 
+  if (last_match == -1)
+    direction = 1;
+  int current = last_match;
   for (int i = 0; i < ed_cfg.numrows; i++) {
-    struct erow *row = &ed_cfg.rows[i];
+    current += direction;
+    if (current == -1)
+      current = ed_cfg.numrows - 1;
+    else if (current == ed_cfg.numrows)
+      current = 0;
+
+    struct erow *row = &ed_cfg.rows[current];
     char *match = strstr(row->render, query);
     if (match) {
-      ed_cfg.cy = i;
+      last_match = current;
+      ed_cfg.cy = current;
       ed_cfg.cx = editor_row_rx_to_cx(row, match - row->render);
       ed_cfg.row_offset = ed_cfg.numrows;
       break;
@@ -473,10 +498,21 @@ void editor_find_callback(char *query, int key)
 
 void editor_find(void)
 {
-  char *query = editor_prompt("Search: %s (ESC to cancel)", editor_find_callback);
+  int saved_cx = ed_cfg.cx;
+  int saved_cy = ed_cfg.cy;
+  int saved_coloff = ed_cfg.col_offset;
+  int saved_rowoff = ed_cfg.row_offset;
+
+  char *query = editor_prompt("Search: %s (Use ESC/Arrows/Enter)", editor_find_callback);
 
   if (query) {
     free(query);
+  }
+  else {
+    ed_cfg.cx = saved_cx;
+    ed_cfg.cy = saved_cy;
+    ed_cfg.col_offset = saved_coloff;
+    ed_cfg.row_offset = saved_rowoff;
   }
 }
 
