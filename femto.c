@@ -512,7 +512,7 @@ void editor_find(void)
   int saved_coloff = ed_cfg.col_offset;
   int saved_rowoff = ed_cfg.row_offset;
 
-  char *query = editor_prompt("Search: %s (Use ESC/Arrows/Enter)", editor_find_callback);
+  char *query = editor_prompt("\x1b[2mSearch: \x1b[m%s\x1b[2m (Use ESC/Arrows/Enter)\x1b[m", editor_find_callback);
 
   if (query) {
     free(query);
