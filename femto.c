@@ -81,8 +81,9 @@ struct editor_config {
   int col_offset;
   int screenrows;
   int screencols;
+  int margin_width;
+  int display_cols;
   int numrows;
-  int left_margin;
   struct erow *rows;
   bool dirty;
   char *filename;
@@ -330,7 +331,7 @@ void editor_insert_char(int c)
     editor_insert_row(ed_cfg.numrows, "", 0);
   }
 
-  int at = ed_cfg.cx - ed_cfg.left_margin - 1;
+  int at = ed_cfg.cx - ed_cfg.margin_width - 1;
   editor_row_insert_char(&ed_cfg.rows[ed_cfg.cy], at, c);
   ++ed_cfg.cx;
 }
@@ -339,14 +340,14 @@ void editor_insert_newline(void)
 {
   if (ed_cfg.numrows == 0) {
     editor_insert_row(0, "", 0);
-    ed_cfg.cx = ed_cfg.left_margin + 2;
+    ed_cfg.cx = ed_cfg.margin_width + 1;
     return;
   }
-  else if (ed_cfg.cx <= ed_cfg.left_margin + 1) {
+  else if (ed_cfg.cx <= ed_cfg.margin_width) {
     editor_insert_row(ed_cfg.cy, "", 0);
   }
   else {
-    int pos_in_line = ed_cfg.cx - ed_cfg.left_margin - 1;
+    int pos_in_line = ed_cfg.cx - ed_cfg.margin_width - 1;
     struct erow *row = &ed_cfg.rows[ed_cfg.cy];
     editor_insert_row(ed_cfg.cy + 1, &row->chars[pos_in_line],
       row->size -pos_in_line);
@@ -357,7 +358,7 @@ void editor_insert_newline(void)
   }
 
   ++ed_cfg.cy;
-  ed_cfg.cx = ed_cfg.left_margin + 1;
+  ed_cfg.cx = ed_cfg.margin_width;
 }
 
 void editor_del_char(void)
@@ -368,13 +369,13 @@ void editor_del_char(void)
     return;
 
   struct erow *row = &ed_cfg.rows[ed_cfg.cy];
-  if (ed_cfg.cx > ed_cfg.left_margin + 1) {
-    int at = ed_cfg.cx - ed_cfg.left_margin - 2;
+  if (ed_cfg.cx > ed_cfg.margin_width) {
+    int at = ed_cfg.cx - ed_cfg.margin_width - 2;
     editor_row_del_char(row, at);
     --ed_cfg.cx;
   }
   else {
-    ed_cfg.cx = ed_cfg.rows[ed_cfg.cy - 1].size + ed_cfg.left_margin + 1;
+    ed_cfg.cx = ed_cfg.rows[ed_cfg.cy - 1].size + ed_cfg.margin_width;
     editor_row_append_str(&ed_cfg.rows[ed_cfg.cy - 1], row->chars, row->size);
     editor_del_row(ed_cfg.cy);
     --ed_cfg.cy;
@@ -497,7 +498,7 @@ void editor_find_callback(char *query, int key)
     if (match) {
       last_match = current;
       ed_cfg.cy = current;
-      ed_cfg.cx = editor_row_rx_to_cx(row, match - row->render) + ed_cfg.left_margin + 1;
+      ed_cfg.cx = editor_row_rx_to_cx(row, match - row->render) + ed_cfg.margin_width;
       ed_cfg.row_offset = ed_cfg.numrows;
       break;
     }
@@ -545,8 +546,7 @@ int get_cursor_position(int *rows, int *cols)
     return -1;
   if (sscanf(&buf[2], "%d;%d", rows, cols) != 2)
     return -1;
-  printf("\r\n&buf[1]: '%s'\r\n", &buf[1]);
-
+  
   return 0;
 }
 
@@ -616,12 +616,13 @@ void editor_draw_rows(struct abuf *ab)
   {
     // figure out how wide we need the left margin to be
     char buff[80];
-    snprintf(buff, 80, "%d", ed_cfg.numrows);
+    sprintf(buff, "%d", ed_cfg.numrows);
     int left_padding = strlen(buff);
     
-    ed_cfg.left_margin = left_padding;
-    if (ed_cfg.cx <= ed_cfg.left_margin)
-      ed_cfg.cx = ed_cfg.left_margin + 1;
+    ed_cfg.margin_width = left_padding + 1;
+    ed_cfg.display_cols = ed_cfg.screencols - ed_cfg.margin_width;
+    if (ed_cfg.cx < ed_cfg.margin_width)
+      ed_cfg.cx = ed_cfg.margin_width + 1;
   }
 
   for (int y = 0; y < ed_cfg.screenrows; y++) {
@@ -636,15 +637,15 @@ void editor_draw_rows(struct abuf *ab)
       int len = ed_cfg.rows[file_row].rsize - ed_cfg.col_offset;
       if (len < 0)
         len = 0;
-      if (len > ed_cfg.screencols) 
-        len = ed_cfg.screencols;
+      if (len > ed_cfg.screencols - ed_cfg.margin_width - 1) 
+        len = ed_cfg.screencols - ed_cfg.margin_width - 1;
       
-      int bll = strlen(ed_cfg.rows[file_row].render) + ed_cfg.left_margin + 2;
-      char *buf = malloc(ed_cfg.left_margin + 2);
-      sprintf(buf, "%*d ", ed_cfg.left_margin, file_row + 1);
-      abuf_append(ab, "\x1b[2m", 4);
-      abuf_append(ab, buf, ed_cfg.left_margin + 1);
-      abuf_append(ab, "\x1b[0m", 4);
+      char *buf = malloc(ed_cfg.margin_width + 1);
+      sprintf(buf, "%*d ", ed_cfg.margin_width - 1, file_row + 1);
+      if (file_row != ed_cfg.cy)
+        abuf_append(ab, "\x1b[2m", 4); // draw fainter text
+      abuf_append(ab, buf, ed_cfg.margin_width + 1);
+      abuf_append(ab, "\x1b[m", 3); // reset to normal text
       abuf_append(ab, &ed_cfg.rows[file_row].render[ed_cfg.col_offset], len);
       free(buf);
     }
@@ -655,8 +656,10 @@ void editor_draw_rows(struct abuf *ab)
 }
 
 void editor_draw_status_bar(struct abuf *ab)
-{
-  abuf_append(ab, "\x1b[7m", 4);
+{  
+  //abuf_append(ab, "\x1b[7m", 4);
+  abuf_append(ab, "\x1b[47m", 5);
+  abuf_append(ab, "\x1b[30m", 5);
   char status[80], rstatus[80];
 
   int len = snprintf(status, sizeof(status), "%.20s - %d lines %s",
@@ -791,6 +794,8 @@ void editor_jump_to_line(void)
 
   if (valid) {
     char buf[80];
+    sprintf(buf, "mw: %d dc: %d sc: %d", ed_cfg.margin_width, ed_cfg.display_cols, ed_cfg.screencols);
+    editor_set_status_message(buf);
 
     // I find I I often type 0 instead of 1 when I want to
     // go to the first line of a file because 0-index brain, so I'll
@@ -804,12 +809,10 @@ void editor_jump_to_line(void)
     // I like to have the line we jumped to be around 1/3 the way down 
     // the screen
     if (ln > 10 && ed_cfg.numrows - ln > ed_cfg.screenrows) {
-      editor_set_status_message("flag!");
       ed_cfg.cy = ln - 1;
       //ed_cfg.row_offset = ln - 9;
     }
     else {
-      editor_set_status_message("flag??");
       ed_cfg.cy = ln - 1;
     }
 
@@ -825,16 +828,16 @@ void editor_jump_to_line(void)
 void editor_move_cursor(int key)
 {
   struct erow *row = ed_cfg.cy >= ed_cfg.numrows ? NULL : &ed_cfg.rows[ed_cfg.cy];
-  int right_margin = row ? row->size + ed_cfg.left_margin + 1 : 0;
+  int right_margin = row ? row->size + ed_cfg.margin_width : 0;
   
   switch (key) {
     case ARROW_LEFT:
-      if (ed_cfg.cx > ed_cfg.left_margin + 1) {
+      if (ed_cfg.cx > ed_cfg.margin_width) {
         ed_cfg.cx--;
       }
       else if (ed_cfg.cy > 0) {
         ed_cfg.cy--;
-        ed_cfg.cx = ed_cfg.rows[ed_cfg.cy].size + ed_cfg.left_margin + 1;
+        ed_cfg.cx = ed_cfg.rows[ed_cfg.cy].size + ed_cfg.margin_width;
       }
       break;
     case ARROW_RIGHT:
@@ -843,7 +846,7 @@ void editor_move_cursor(int key)
       }
       else if (row && ed_cfg.cx >= right_margin && ed_cfg.cy < ed_cfg.numrows - 1) {
         ed_cfg.cy++;
-        ed_cfg.cx = ed_cfg.left_margin + 1;
+        ed_cfg.cx = ed_cfg.margin_width;
       }      
       break;
     case ARROW_DOWN:      
@@ -857,7 +860,7 @@ void editor_move_cursor(int key)
   }
   
   row = ed_cfg.cy >= ed_cfg.numrows ? NULL : &ed_cfg.rows[ed_cfg.cy];
-  int row_len = row ? right_margin : ed_cfg.left_margin + 1;
+  int row_len = row ? right_margin : ed_cfg.margin_width;
   if (ed_cfg.cx > row_len) {
     ed_cfg.cx = row_len;
   }
@@ -950,7 +953,7 @@ void editor_init(void)
   ed_cfg.row_offset = 0;
   ed_cfg.col_offset = 0;
   ed_cfg.numrows = 0;
-  ed_cfg.left_margin = 0;
+  ed_cfg.margin_width = 0;  
   ed_cfg.rows = NULL;
   ed_cfg.dirty = false;
   ed_cfg.filename = NULL;
@@ -960,6 +963,7 @@ void editor_init(void)
   if (get_window_size(&ed_cfg.screenrows, &ed_cfg.screencols) == -1)
     die("get_window_size");
   ed_cfg.screenrows -= 2;
+  ed_cfg.display_cols = ed_cfg.screencols;
 }
 
 int main(int argc, char **argv)
