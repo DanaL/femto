@@ -640,12 +640,13 @@ void editor_draw_rows(struct abuf *ab)
         len = ed_cfg.screencols;
       
       int bll = strlen(ed_cfg.rows[file_row].render) + ed_cfg.left_margin + 2;
-      char *buf = malloc(bll);
+      char *buf = malloc(ed_cfg.left_margin + 2);
       sprintf(buf, "%*d ", ed_cfg.left_margin, file_row + 1);
-      strcpy((buf + ed_cfg.left_margin + 1), &ed_cfg.rows[file_row].render[ed_cfg.col_offset]);
-      abuf_append(ab, buf, bll);
+      abuf_append(ab, "\x1b[2m", 4);
+      abuf_append(ab, buf, ed_cfg.left_margin + 1);
+      abuf_append(ab, "\x1b[0m", 4);
+      abuf_append(ab, &ed_cfg.rows[file_row].render[ed_cfg.col_offset], len);
       free(buf);
-      //abuf_append(ab, &ed_cfg.rows[file_row].render[ed_cfg.col_offset], len);
     }
 
     abuf_append(ab, "\x1b[K", 3);
