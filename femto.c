@@ -497,7 +497,7 @@ void editor_find_callback(char *query, int key)
     if (match) {
       last_match = current;
       ed_cfg.cy = current;
-      ed_cfg.cx = editor_row_rx_to_cx(row, match - row->render);
+      ed_cfg.cx = editor_row_rx_to_cx(row, match - row->render) + ed_cfg.left_margin + 1;
       ed_cfg.row_offset = ed_cfg.numrows;
       break;
     }
@@ -589,6 +589,25 @@ void editor_scroll(void)
   }
 }
 
+void editor_draw_welcome(struct abuf *ab)
+{
+  char welcome[80];
+  int welcome_len = snprintf(welcome, sizeof(welcome), 
+        "Femto editor -- version %s", FEMTO_VERSION);
+  if (welcome_len > ed_cfg.screencols)
+    welcome_len = ed_cfg.screencols;
+
+  int padding = (ed_cfg.screencols - welcome_len) / 2;
+  if (padding) {
+    abuf_append(ab, "~", 1);
+    padding--;
+  }
+  while (padding--)
+    abuf_append(ab, " ", 1);
+
+  abuf_append(ab, welcome, welcome_len);
+}
+
 // draw each row that is on screen. Either the row of text in our buffer
 // or an empty line with a ~
 void editor_draw_rows(struct abuf *ab)
@@ -605,30 +624,13 @@ void editor_draw_rows(struct abuf *ab)
       ed_cfg.cx = ed_cfg.left_margin + 1;
   }
 
-  int y;
-  for (y = 0; y < ed_cfg.screenrows; y++) {
+  for (int y = 0; y < ed_cfg.screenrows; y++) {
     int file_row = y + ed_cfg.row_offset;
     if (y >= ed_cfg.numrows) {
-      if (ed_cfg.numrows == 0 && y == ed_cfg.screenrows / 3) {
-        char welcome[80];
-        int welcome_len = snprintf(welcome, sizeof(welcome), 
-          "Femto editor -- version %s", FEMTO_VERSION);
-        if (welcome_len > ed_cfg.screencols)
-          welcome_len = ed_cfg.screencols;
-
-        int padding = (ed_cfg.screencols - welcome_len) / 2;
-        if (padding) {
-          abuf_append(ab, "~", 1);
-          padding--;
-        }
-        while (padding--)
-          abuf_append(ab, " ", 1);
-
-        abuf_append(ab, welcome, welcome_len);
-      }
-      else {
+      if (ed_cfg.numrows == 0 && y == ed_cfg.screenrows / 3)
+       editor_draw_welcome(ab);
+      else
         abuf_append(ab, "~", 1);
-      }
     }
     else {
       int len = ed_cfg.rows[file_row].rsize - ed_cfg.col_offset;
@@ -788,23 +790,33 @@ void editor_jump_to_line(void)
   }
 
   if (valid) {
-    int ln = atoi(txt);
-    // in other editors, I often type 0 instead of 1 when I want to
+    char buf[80];
+
+    // I find I I often type 0 instead of 1 when I want to
     // go to the first line of a file because 0-index brain, so I'll
     // just treat it as 1.
+    int ln = atoi(txt);
     if (ln == 0)
-      ed_cfg.cy = 0;
+      ln = 1;
     else if (ln >= ed_cfg.numrows)
-      ed_cfg.cy = ed_cfg.numrows;
-    else      
-      ed_cfg.cy = ln;
+      ln = ed_cfg.numrows;
     
     // I like to have the line we jumped to be around 1/3 the way down 
     // the screen
-    int pos = ln - (ed_cfg.screenrows / 3);
-    if (pos < 1)
-      pos = ed_cfg.numrows;
-    ed_cfg.row_offset = pos;
+    if (ln > 10 && ed_cfg.numrows - ln > ed_cfg.screenrows) {
+      editor_set_status_message("flag!");
+      ed_cfg.cy = ln - 1;
+      //ed_cfg.row_offset = ln - 9;
+    }
+    else {
+      editor_set_status_message("flag??");
+      ed_cfg.cy = ln - 1;
+    }
+
+    //[12;40H
+    editor_scroll();
+    //sprintf(buf, "row offset to : %d", ed_cfg.row_offset);
+    //editor_set_status_message(buf);
   }
 
   free(txt);
