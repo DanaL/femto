@@ -490,7 +490,7 @@ void editor_find_callback(char *query, int key)
     current += direction;
     if (current == -1)
       current = ed_cfg.numrows - 1;
-    else if (current == ed_cfg.numrows)
+    else if (current >= ed_cfg.numrows)
       current = 0;
 
     struct erow *row = &ed_cfg.rows[current];
@@ -627,7 +627,7 @@ void editor_draw_rows(struct abuf *ab)
 
   for (int y = 0; y < ed_cfg.screenrows; y++) {
     int file_row = y + ed_cfg.row_offset;
-    if (y >= ed_cfg.numrows) {
+    if (file_row >= ed_cfg.numrows) {
       if (ed_cfg.numrows == 0 && y == ed_cfg.screenrows / 3)
        editor_draw_welcome(ab);
       else
