@@ -639,13 +639,12 @@ void editor_draw_rows(struct abuf *ab)
       if (len > ed_cfg.screencols) 
         len = ed_cfg.screencols;
       
-      int bll = strlen(&ed_cfg.rows[file_row].render[ed_cfg.col_offset]) 
-                    + ed_cfg.left_margin + 1;
-      char *buff_line = malloc(bll);
-      sprintf(buff_line, "%*d ", ed_cfg.left_margin, file_row + 1);
-      strcpy((buff_line + ed_cfg.left_margin + 1), &ed_cfg.rows[file_row].render[ed_cfg.col_offset]);
-      abuf_append(ab, buff_line, bll);
-      free(buff_line);
+      int bll = strlen(ed_cfg.rows[file_row].render) + ed_cfg.left_margin + 2;
+      char *buf = malloc(bll);
+      sprintf(buf, "%*d ", ed_cfg.left_margin, file_row + 1);
+      strcpy((buf + ed_cfg.left_margin + 1), &ed_cfg.rows[file_row].render[ed_cfg.col_offset]);
+      abuf_append(ab, buf, bll);
+      free(buf);
       //abuf_append(ab, &ed_cfg.rows[file_row].render[ed_cfg.col_offset], len);
     }
 
