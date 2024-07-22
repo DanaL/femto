@@ -331,7 +331,7 @@ void editor_insert_char(int c)
     editor_insert_row(ed_cfg.numrows, "", 0);
   }
 
-  int at = ed_cfg.cx - ed_cfg.margin_width - 1;
+  int at = ed_cfg.cx - ed_cfg.margin_width;
   editor_row_insert_char(&ed_cfg.rows[ed_cfg.cy], at, c);
   ++ed_cfg.cx;
 }
@@ -370,7 +370,7 @@ void editor_del_char(void)
 
   struct erow *row = &ed_cfg.rows[ed_cfg.cy];
   if (ed_cfg.cx > ed_cfg.margin_width) {
-    int at = ed_cfg.cx - ed_cfg.margin_width - 2;
+    int at = ed_cfg.cx - ed_cfg.margin_width - 1;
     editor_row_del_char(row, at);
     --ed_cfg.cx;
   }
