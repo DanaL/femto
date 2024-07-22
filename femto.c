@@ -52,8 +52,6 @@ struct abuf {
   size_t len;
 };
 
-#define ABUF_INIT { NULL, 0 }
-
 void abuf_append(struct abuf *ab, const char *s, int len)
 {
   char *new = realloc(ab->b, ab->len + len);
@@ -96,6 +94,7 @@ struct editor_config ed_cfg;
 
 // prototypes 
 
+void editor_set_margin_width(void);
 void editor_set_status_message(const char *fmt, ...);
 void editor_refresh_screen(void);
 char *editor_prompt(char *prompt, void (*callback)(char *, int));
@@ -427,6 +426,8 @@ void editor_open(char *filename)
   free(line);
   fclose(fp);
   ed_cfg.dirty = false;
+
+  editor_set_margin_width();
 }
 
 void editor_save(void)
@@ -568,6 +569,7 @@ int get_window_size(int *rows, int *cols)
 }
 
 // Output
+
 void editor_scroll(void)
 {
   ed_cfg.rx = 0;
@@ -608,10 +610,8 @@ void editor_draw_welcome(struct abuf *ab)
   abuf_append(ab, welcome, welcome_len);
 }
 
-// draw each row that is on screen. Either the row of text in our buffer
-// or an empty line with a ~
-void editor_draw_rows(struct abuf *ab)
-{ 
+void editor_set_margin_width(void)
+{
   if (ed_cfg.numrows > 0)
   {
     // figure out how wide we need the left margin to be
@@ -622,8 +622,14 @@ void editor_draw_rows(struct abuf *ab)
     ed_cfg.margin_width = left_padding + 1;
     ed_cfg.display_cols = ed_cfg.screencols - ed_cfg.margin_width;
     if (ed_cfg.cx < ed_cfg.margin_width)
-      ed_cfg.cx = ed_cfg.margin_width + 1;
+      ed_cfg.cx = ed_cfg.margin_width;
   }
+}
+// draw each row that is on screen. Either the row of text in our buffer
+// or an empty line with a ~
+void editor_draw_rows(struct abuf *ab)
+{ 
+  editor_set_margin_width();
 
   for (int y = 0; y < ed_cfg.screenrows; y++) {
     int file_row = y + ed_cfg.row_offset;
@@ -699,7 +705,7 @@ void editor_refresh_screen(void)
 {
   editor_scroll();
 
-  struct abuf ab = ABUF_INIT;
+  struct abuf ab = { NULL, 0 };
 
   abuf_append(&ab, "\x1b[?25l", 6);
   abuf_append(&ab, "\x1b[H", 3);
